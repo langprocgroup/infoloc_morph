@@ -319,7 +319,7 @@ def conditional_logp_laplace(context, counts, alpha, V):
     Z_context = df.groupby('context').sum().reset_index()
     Z_context.columns = ['context', 'Z']
     df = df.join(Z_context.set_index('context'), on='context') # preserve order
-    return np.log(df['count']) - np.log(df['Z'])
+    return np.log(df['count'] + alpha) - np.log(df['Z'] + V*alpha)
     
 def curves(t, joint_logp, conditional_logp):
     """ 
