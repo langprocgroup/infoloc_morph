@@ -54,8 +54,19 @@ def sequence_transformer(f):
         return restore(result)
     return wrapped
 
-def shuffle_by_skeleton(skeleton, xs):
+def delimited_sequence_transformer(f):
+    def wrapped(s, *a, **k):
+        restore = restorer(s)
+        s = list(strip(s, DELIMITER))
+        r = f(s)
+        r.insert(0, DELIMITER)
+        r.append(DELIMITER)
+        return restore(r)
+    return wrapped
+
+def shuffle_by_skeleton(xs, skeleton):
     """ Shuffle xs while retaining the invariant described by skeleton. """
+    # The skeleton is assumed to contain any delimiters
     assert len(skeleton) == len(xs)
     # For example, xs = "static", skeleton = "stVtVt"
     reordering = [None] * len(xs)
@@ -96,11 +107,11 @@ def read_wolex(filename):
 
 def reorder_manner(anipa_form):
     skeleton = list(map(extract_manner, anipa_form))
-    return shuffle_by_skeleton(skeleton, anipa_form)
+    return shuffle_by_skeleton(anipa_form, skeleton)
 
 def reorder_cv(anipa_form):
     skeleton = list(map(extract_cv, anipa_form))
-    return shuffle_by_skeleton(skeleton, anipa_form)
+    return shuffle_by_skeleton(anipa_form, skeleton)
 
 def read_unimorph(filename, with_delimiters=True):
     with open(filename) as infile:
@@ -199,33 +210,22 @@ class DeterministicScramble:
         return restore(r)
 
 
-@sequence_transformer
+@delimited_sequence_transformer
 def scramble_form(s):
-    r = list(strip(s, DELIMITER))
-    random.shuffle(r)
-    r.insert(0, DELIMITER)
-    r.append(DELIMITER)
-    return r
+    random.shuffle(s)
+    return s
 
-@sequence_transformer
+@delimited_sequence_transformer
 def reorder_form(s, order):
-    r = list(strip(s, DELIMITER))
-    r = rfutils.ordering.reorder(r, order)
-    r.insert(0, DELIMITER)
-    r.append(DELIMITER)
-    return r
+    return rfutils.ordering.reorder(s, order)
 
-@sequence_transformer
+@delimited_sequence_transformer
 def even_odd(s):
-    s = list(strip(s, DELIMITER))
-    r = s[::2] + s[1::2]
-    r.insert(0, DELIMITER)
-    r.append(DELIMITER)
-    return r
+    return s[::2] + s[1::2]
 
-@sequence_transformer
+@delimited_sequence_transformer
 def outward_in(s):
-    s = deque(strip(s, DELIMITER))
+    s = deque(s)
     result = []
     while True:
         if s:
@@ -238,11 +238,9 @@ def outward_in(s):
             result.append(last)
         else:
             break
-    result.insert(0, DELIMITER)
-    result.append(DELIMITER)
     return result
 
-def int_to_char(k, offset=ord(DELIMITER)+1):
+def int_to_char(k, offset=ord(DELIMITER)+1): # make sure that the delimiter is not produced by accident
     return chr(k+offset)
 
 # How many "effective phonemes" are there in a language?
@@ -320,7 +318,8 @@ def conditional_logp_laplace(context, counts, alpha, V):
     Z_context.columns = ['context', 'Z']
     df = df.join(Z_context.set_index('context'), on='context') # preserve order
     return np.log(df['count'] + alpha) - np.log(df['Z'] + V*alpha)
-    
+
+
 def curves(t, joint_logp, conditional_logp):
     """ 
     Input:
@@ -331,8 +330,8 @@ def curves(t, joint_logp, conditional_logp):
     Output:
     A dataframe of dimension max(t)+1, with columns t, h_t, I_t, and H_M_lower_bound.
     """
-    minus_plogp = -np.exp(joint_logp) * conditional_logp
-    h_t = minus_plogp.groupby(t).sum()
+    plogp = np.exp(joint_logp) * conditional_logp
+    h_t = -plogp.groupby(t).sum()
     assert is_monotonically_decreasing(h_t)
     I_t = -h_t.diff()
     H_M_lower_bound = np.cumsum(I_t * I_t.index)
